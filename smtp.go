@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"net/smtp"
 	"strings"
 	"time"
+
+	"github.com/emersion/go-sasl"
+	"github.com/emersion/go-smtp"
 )
 
 var defaultDialer = &net.Dialer{
@@ -27,7 +29,7 @@ type Dialer struct {
 	Password string
 	// Auth represents the authentication mechanism used to authenticate to the
 	// SMTP server.
-	Auth smtp.Auth
+	Auth sasl.Client
 	// SSL defines whether an SSL connection is used. It should be false in
 	// most cases since the authentication mechanism should use the STARTTLS
 	// extension instead.
@@ -38,6 +40,8 @@ type Dialer struct {
 	// LocalName is the hostname sent to the SMTP server with the HELO command.
 	// By default, "localhost" is sent.
 	LocalName string
+	// Options
+	MailOptions *smtp.MailOptions
 
 	dialer netDialer
 }
@@ -112,17 +116,11 @@ func (d *Dialer) Dial() (SendCloser, error) {
 
 	if d.Auth == nil && d.Username != "" {
 		if ok, auths := c.Extension("AUTH"); ok {
-			if strings.Contains(auths, "CRAM-MD5") {
-				d.Auth = smtp.CRAMMD5Auth(d.Username, d.Password)
-			} else if strings.Contains(auths, "LOGIN") &&
+			if strings.Contains(auths, "LOGIN") &&
 				!strings.Contains(auths, "PLAIN") {
-				d.Auth = &loginAuth{
-					username: d.Username,
-					password: d.Password,
-					host:     d.Host,
-				}
+				d.Auth = sasl.NewLoginClient(d.Username, d.Password)
 			} else {
-				d.Auth = smtp.PlainAuth("", d.Username, d.Password, d.Host)
+				d.Auth = sasl.NewPlainClient("", d.Username, d.Password)
 			}
 		}
 	}
@@ -166,7 +164,7 @@ type smtpSender struct {
 }
 
 func (c *smtpSender) Send(from string, to []string, msg io.WriterTo) error {
-	if err := c.Mail(from); err != nil {
+	if err := c.Mail(from, c.d.MailOptions); err != nil {
 		if err == io.EOF {
 			// This is probably due to a timeout, so reconnect and try again.
 			sc, derr := c.d.Dial()
@@ -223,8 +221,8 @@ type smtpClient interface {
 	Hello(string) error
 	Extension(string) (bool, string)
 	StartTLS(*tls.Config) error
-	Auth(smtp.Auth) error
-	Mail(string) error
+	Auth(sasl.Client) error
+	Mail(string, *smtp.MailOptions) error
 	Rcpt(string) error
 	Reset() error
 	Data() (io.WriteCloser, error)

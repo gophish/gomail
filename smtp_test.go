@@ -5,9 +5,18 @@ import (
 	"crypto/tls"
 	"io"
 	"net"
-	"net/smtp"
 	"reflect"
 	"testing"
+
+    "github.com/emersion/go-sasl"
+    "github.com/emersion/go-smtp"
+)
+
+
+const (
+       testUser = "user"
+       testPwd  = "pwd"
+       testHost = "smtp.example.com"
 )
 
 const (
@@ -19,7 +28,7 @@ var (
 	testConn    = &net.TCPConn{}
 	testTLSConn = &tls.Conn{}
 	testConfig  = &tls.Config{InsecureSkipVerify: true}
-	testAuth    = smtp.PlainAuth("", testUser, testPwd, testHost)
+	testAuth    = sasl.NewPlainClient("", testUser, testPwd)
 )
 
 type mockNetDialer struct {
@@ -183,7 +192,7 @@ func (c *mockClient) StartTLS(config *tls.Config) error {
 	return nil
 }
 
-func (c *mockClient) Auth(a smtp.Auth) error {
+func (c *mockClient) Auth(a sasl.Client) error {
 	if !reflect.DeepEqual(a, testAuth) {
 		c.t.Errorf("Invalid auth, got %#v, want %#v", a, testAuth)
 	}
@@ -191,7 +200,7 @@ func (c *mockClient) Auth(a smtp.Auth) error {
 	return nil
 }
 
-func (c *mockClient) Mail(from string) error {
+func (c *mockClient) Mail(from string, opts *smtp.MailOptions) error {
 	c.do("Mail " + from)
 	if c.timeout {
 		c.timeout = false
